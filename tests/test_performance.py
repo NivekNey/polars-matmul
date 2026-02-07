@@ -13,10 +13,9 @@ def numpy_matmul(query: np.ndarray, corpus: np.ndarray) -> np.ndarray:
     return query @ corpus.T
 
 
-def polars_matmul(left: pl.Series, right: pl.Series) -> list:
+def polars_matmul(left: pl.Series, right: pl.Series):
     """polars-matmul matrix multiplication."""
-    result = pmm.matmul(left, right)
-    return [row.to_list() for row in result]
+    return pmm.matmul(left, right)
 
 
 class TestBLASPerformance:
@@ -26,10 +25,8 @@ class TestBLASPerformance:
         """Verify polars-matmul has BLAS acceleration working.
         
         If BLAS is not linked correctly, this will be 100x+ slower.
-        We allow 20x margin for overhead from:
-        - Polars Series -> Python list -> NumPy array conversion
-        - Result conversion back to Polars
-        This test verifies BLAS is linked, not that we match NumPy speed.
+        We expect performance to be comparable to NumPy (within 5x)
+        now that we measure raw execution without conversion overhead.
         """
         np.random.seed(42)
         n_queries, n_corpus, dim = 100, 1000, 128
@@ -66,13 +63,13 @@ class TestBLASPerformance:
         print(f"\nPerformance: {n_queries}x{dim} @ {n_corpus}x{dim}^T")
         print(f"  NumPy:         {numpy_mean*1000:.2f}ms")
         print(f"  polars-matmul: {pmm_mean*1000:.2f}ms")
-        print(f"  Ratio: {ratio:.2f}x (overhead from Polars conversion)")
+        print(f"  Ratio: {ratio:.2f}x")
         
-        # BLAS should provide acceleration - without it we'd be 100x+ slower
-        # Allow 20x margin for Python/Polars conversion overhead
-        assert ratio < 20.0, (
+        # BLAS should provide acceleration
+        # Without conversion overhead, we should be much closer to NumPy
+        assert ratio < 5.0, (
             f"polars-matmul is {ratio:.1f}x slower than NumPy. "
-            f"BLAS may not be linked correctly (expected <20x with overhead)."
+            f"BLAS may not be linked correctly."
         )
     
     def test_correctness_vs_numpy(self):
