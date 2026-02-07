@@ -34,7 +34,7 @@ openblas-src = { version = "0.10", features = ["cblas", "static"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 ndarray = { version = "0.16", features = ["blas"] }
 blas-src = { version = "0.10", features = ["openblas"] }
-openblas-src = { version = "0.10", features = ["cblas", "static"] }
+openblas-src = { version = "0.10", features = ["cblas", "system"] }
 
 [profile.release]
 lto = true

@@ -76,19 +76,28 @@ jobs:
     strategy:
       matrix:
         target: [x64]
+    env:
+      VCPKG_ROOT: C:\vcpkg
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           architecture: ${{ matrix.target }}
-      - name: Install build dependencies
+      - name: Install Static OpenBLAS via vcpkg
         run: |
-          # Install MinGW with gfortran for building OpenBLAS from source
-          choco install mingw -y
-          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" >> $env:GITHUB_PATH
+          vcpkg install openblas:x64-windows-static
+          echo "OPENBLAS_DIR=C:/vcpkg/installed/x64-windows-static" >> $env:GITHUB_ENV
+          echo "OPENBLAS_LIB_DIR=C:/vcpkg/installed/x64-windows-static/lib" >> $env:GITHUB_ENV
+          echo "OPENBLAS_INCLUDE_DIR=C:/vcpkg/installed/x64-windows-static/include" >> $env:GITHUB_ENV
+          echo "OPENBLAS_STATIC=1" >> $env:GITHUB_ENV
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          OPENBLAS_DIR: C:/vcpkg/installed/x64-windows-static
+          OPENBLAS_LIB_DIR: C:/vcpkg/installed/x64-windows-static/lib
+          OPENBLAS_INCLUDE_DIR: C:/vcpkg/installed/x64-windows-static/include
+          OPENBLAS_STATIC: 1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter

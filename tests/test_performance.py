@@ -67,7 +67,7 @@ class TestBLASPerformance:
         
         # BLAS should provide acceleration
         # Without conversion overhead, we should be much closer to NumPy
-        assert ratio < 5.0, (
+        assert ratio < 1.5, (
             f"polars-matmul is {ratio:.1f}x slower than NumPy. "
             f"BLAS may not be linked correctly."
         )
