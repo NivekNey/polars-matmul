@@ -57,6 +57,7 @@ jobs:
           architecture: ${{ matrix.target }}
       - name: Install OpenBLAS
         run: |
+          echo "VCPKG_ROOT=C:/vcpkg" >> $env:GITHUB_ENV
           vcpkg install openblas:x64-windows
           echo "OPENBLAS_DIR=C:/vcpkg/installed/x64-windows" >> $env:GITHUB_ENV
           echo "LIB=C:/vcpkg/installed/x64-windows/lib;$env:LIB" >> $env:GITHUB_ENV
@@ -115,16 +116,17 @@ jobs:
     needs: [linux]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
       - uses: actions/download-artifact@v4
         with:
           name: wheels-linux-x86_64
           path: dist
       - name: Install and test
         run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install dist/*.whl pytest numpy pyarrow polars
+          pip install polars-matmul --find-links=dist/ --no-index
+          pip install pytest numpy pyarrow polars
           pytest tests/ -v -s
 
   test-macos:
@@ -132,16 +134,17 @@ jobs:
     needs: [macos]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
       - uses: actions/download-artifact@v4
         with:
           name: wheels-macos-aarch64
           path: dist
       - name: Install and test
         run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install dist/*.whl pytest numpy pyarrow polars
+          pip install polars-matmul --find-links=dist/ --no-index
+          pip install pytest numpy pyarrow polars
           pytest tests/ -v -s
 
   test-windows:
@@ -149,16 +152,17 @@ jobs:
     needs: [windows]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
       - uses: actions/download-artifact@v4
         with:
           name: wheels-windows-x64
           path: dist
       - name: Install and test
         run: |
-          uv venv .venv
-          .venv\Scripts\activate
-          uv pip install (Get-ChildItem dist/*.whl) pytest numpy pyarrow polars
+          pip install polars-matmul --find-links=dist/ --no-index
+          pip install pytest numpy pyarrow polars
           pytest tests/ -v -s
 
   release:
