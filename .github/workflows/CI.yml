@@ -57,8 +57,10 @@ jobs:
           architecture: ${{ matrix.target }}
       - name: Install OpenBLAS
         run: |
-          vcpkg install openblas:x64-windows-static
-          echo "OPENBLAS_DIR=C:/vcpkg/installed/x64-windows-static" >> $env:GITHUB_ENV
+          vcpkg install openblas:x64-windows
+          echo "OPENBLAS_DIR=C:/vcpkg/installed/x64-windows" >> $env:GITHUB_ENV
+          echo "LIB=C:/vcpkg/installed/x64-windows/lib;$env:LIB" >> $env:GITHUB_ENV
+          echo "PATH=C:/vcpkg/installed/x64-windows/bin;$env:PATH" >> $env:GITHUB_ENV
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
