@@ -145,7 +145,8 @@ jobs:
           pytest tests/ -v -s
       - name: Run Benchmark
         run: |
-          python benchmark.py
+          python examples/benchmark_matmul.py
+          python examples/benchmark_topk.py
 
   test-macos:
     runs-on: macos-latest
@@ -171,7 +172,8 @@ jobs:
           pytest tests/ -v -s
       - name: Run Benchmark
         run: |
-          python benchmark.py
+          python examples/benchmark_matmul.py
+          python examples/benchmark_topk.py
 
   test-windows:
     runs-on: windows-latest
@@ -197,7 +199,8 @@ jobs:
           pytest tests/ -v -s
       - name: Run Benchmark
         run: |
-          python benchmark.py
+          python examples/benchmark_matmul.py
+          python examples/benchmark_topk.py
 
   release:
     name: Release
