@@ -8,7 +8,7 @@ requires-python = ">=3.9"
 authors = [
     { name = "Kevin Yen", email = "yenkevin1203@gmail.com" }
 ]
-description = "BLAS-accelerated similarity joins for Polars"
+description = "High-performance similarity joins for Polars"
 readme = "README.md"
 license = { text = "MIT" }
 dynamic = ["version"]
@@ -23,7 +23,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Topic :: Scientific/Engineering",
 ]
-keywords = ["polars", "matrix", "similarity", "blas", "embeddings", "knn"]
+keywords = ["polars", "matrix", "similarity", "faer", "embeddings", "knn"]
 dependencies = [
     "polars>=0.20.0",
 ]

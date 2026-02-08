@@ -1,0 +1,42 @@
+[package]
+name = "polars-matmul"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kevin Yen <yenkevin1203@gmail.com>"]
+description = "BLAS-accelerated similarity joins for Polars"
+license = "MIT"
+repository = "https://github.com/NivekNey/polars-matmul"
+keywords = ["polars", "matrix", "similarity", "blas", "embeddings"]
+categories = ["science", "mathematics"]
+
+[lib]
+name = "polars_matmul"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.26", features = ["extension-module"] }
+pyo3-polars = "0.25"
+polars = { version = "0.52", default-features = false, features = ["dtype-array"] }
+ndarray = "0.16"
+num-traits = "0.2"
+
+# BLAS backends - only one should be enabled at build time
+[target.'cfg(target_os = "macos")'.dependencies]
+ndarray = { version = "0.16", features = ["blas"] }
+blas-src = { version = "0.10", features = ["accelerate"] }
+accelerate-src = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ndarray = { version = "0.16", features = ["blas"] }
+blas-src = { version = "0.10", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["cblas", "static"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ndarray = { version = "0.16", features = ["blas"] }
+blas-src = { version = "0.10", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["cblas", "system"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

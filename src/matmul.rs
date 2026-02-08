@@ -1,8 +1,12 @@
-//! Core matrix multiplication and similarity join implementation
+//! Core matrix multiplication and similarity search implementation
 
 use ndarray::Array2;
 use polars::prelude::*;
-use crate::metrics::{Metric, compute_similarity_matrix, compute_similarity_matrix_f32};
+use polars::chunked_array::builder::ListPrimitiveChunkedBuilder;
+use crate::metrics::{
+    Metric, compute_similarity_matrix, compute_similarity_matrix_f32, 
+    matmul_f64, matmul_f32, matmul_slice_f64, matmul_slice_f32
+};
 use crate::topk::{select_topk_with_scores, select_topk_with_scores_f32};
 
 /// Check if a series contains f32 data (either List[f32] or Array[f32, dim])
@@ -12,6 +16,144 @@ fn is_f32_series(series: &Series) -> bool {
         DataType::Array(inner, _) => matches!(inner.as_ref(), DataType::Float32),
         _ => false,
     }
+}
+
+/// Zero-copy extraction result - owns the data to keep it alive
+pub struct ContiguousData<T> {
+    /// The raw slice data - valid as long as _owner is alive
+    pub ptr: *const T,
+    pub len: usize,
+    pub n_rows: usize,
+    pub dim: usize,
+    /// Keeps the underlying data alive
+    _owner: Series,
+}
+
+impl<T> ContiguousData<T> {
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+/// Try to extract contiguous f64 data from a Polars Array Series
+fn try_extract_contiguous_f64(series: &Series) -> Option<ContiguousData<f64>> {
+    let arr = series.array().ok()?;
+    let n_rows = arr.len();
+    if n_rows == 0 {
+        return None;
+    }
+    let dim = arr.width();
+    if dim == 0 {
+        return None;
+    }
+    
+    let inner = arr.get_inner();
+    // Check if already f64
+    let ca_f64 = inner.f64().ok()?;
+    let slice = ca_f64.cont_slice().ok()?;
+    
+    if slice.len() == n_rows * dim {
+        Some(ContiguousData {
+            ptr: slice.as_ptr(),
+            len: slice.len(),
+            n_rows,
+            dim,
+            _owner: series.clone(),
+        })
+    } else {
+        None
+    }
+}
+
+/// Try to extract contiguous f32 data from a Polars Array Series
+fn try_extract_contiguous_f32(series: &Series) -> Option<ContiguousData<f32>> {
+    let arr = series.array().ok()?;
+    let n_rows = arr.len();
+    if n_rows == 0 {
+        return None;
+    }
+    let dim = arr.width();
+    if dim == 0 {
+        return None;
+    }
+    
+    let inner = arr.get_inner();
+    let ca_f32 = inner.f32().ok()?;
+    let slice = ca_f32.cont_slice().ok()?;
+    
+    if slice.len() == n_rows * dim {
+        Some(ContiguousData {
+            ptr: slice.as_ptr(),
+            len: slice.len(),
+            n_rows,
+            dim,
+            _owner: series.clone(),
+        })
+    } else {
+        None
+    }
+}
+
+/// Efficiently convert a flat Vec<f64> to a List[f64] Series
+/// Uses ListPrimitiveChunkedBuilder for minimal allocations
+fn vec_to_list_series_f64(data: Vec<f64>, n_rows: usize, row_len: usize) -> PolarsResult<Series> {
+    let mut builder = ListPrimitiveChunkedBuilder::<Float64Type>::new(
+        PlSmallStr::from_static("matmul"),
+        n_rows,
+        row_len,
+        DataType::Float64,
+    );
+    
+    for chunk in data.chunks(row_len) {
+        builder.append_slice(chunk);
+    }
+    
+    Ok(builder.finish().into_series())
+}
+
+/// Efficiently convert a flat Vec<f32> to a List[f32] Series
+fn vec_to_list_series_f32(data: Vec<f32>, n_rows: usize, row_len: usize) -> PolarsResult<Series> {
+    let mut builder = ListPrimitiveChunkedBuilder::<Float32Type>::new(
+        PlSmallStr::from_static("matmul"),
+        n_rows,
+        row_len,
+        DataType::Float32,
+    );
+    
+    for chunk in data.chunks(row_len) {
+        builder.append_slice(chunk);
+    }
+    
+    Ok(builder.finish().into_series())
+}
+
+/// Convert flat Vec<f64> to Array[f64, width] Series (more efficient for fixed-size output)
+/// Uses ChunkedArray::from_vec for zero-copy, then reshapes
+fn vec_to_array_series_f64(data: Vec<f64>, n_rows: usize, width: usize) -> PolarsResult<Series> {
+    use polars::prelude::ReshapeDimension;
+    
+    // Create a flat Float64Chunked from the Vec (zero-copy - takes ownership)
+    let flat = Float64Chunked::from_vec("values".into(), data);
+    
+    // Reshape into Array type - this creates a FixedSizeList view over the same data
+    let reshaped = flat.into_series().reshape_array(&[
+        ReshapeDimension::new(n_rows as i64),
+        ReshapeDimension::new(width as i64),
+    ])?;
+    
+    Ok(reshaped.with_name("matmul".into()))
+}
+
+/// Convert flat Vec<f32> to Array[f32, width] Series
+fn vec_to_array_series_f32(data: Vec<f32>, n_rows: usize, width: usize) -> PolarsResult<Series> {
+    use polars::prelude::ReshapeDimension;
+    
+    let flat = Float32Chunked::from_vec("values".into(), data);
+    let reshaped = flat.into_series().reshape_array(&[
+        ReshapeDimension::new(n_rows as i64),
+        ReshapeDimension::new(width as i64),
+    ])?;
+    Ok(reshaped.with_name("matmul".into()))
 }
 
 /// Convert a Polars Series of List/Array to an ndarray matrix (f64)
@@ -177,9 +319,23 @@ fn list_chunked_to_matrix_f32(ca: &ListChunked) -> PolarsResult<Array2<f32>> {
 
 /// Compute full matrix multiplication between two Series
 /// 
-/// Automatically uses f32 BLAS operations when input is f32, providing
+/// Automatically uses f32 operations when input is f32, providing
 /// 2x memory efficiency and potentially faster computation.
+/// 
+/// Uses zero-copy path when data is contiguous (Array type), 
+/// falls back to copying for List type.
 pub fn matmul_impl(left: &Series, right: &Series) -> PolarsResult<Series> {
+    // Handle empty left series - return empty result with correct type
+    if left.len() == 0 {
+        let inner_dtype = if is_f32_series(left) && is_f32_series(right) {
+            DataType::Float32
+        } else {
+            DataType::Float64
+        };
+        let empty_series = Series::new_empty("matmul".into(), &DataType::List(Box::new(inner_dtype)));
+        return Ok(empty_series);
+    }
+    
     // Use f32 path if both inputs are f32
     let use_f32 = is_f32_series(left) && is_f32_series(right);
     
@@ -191,6 +347,34 @@ pub fn matmul_impl(left: &Series, right: &Series) -> PolarsResult<Series> {
 }
 
 fn matmul_impl_f64(left: &Series, right: &Series) -> PolarsResult<Series> {
+    // Try zero-copy path first
+    if let (Some(left_data), Some(right_data)) = 
+        (try_extract_contiguous_f64(left), try_extract_contiguous_f64(right)) 
+    {
+        if left_data.dim != right_data.dim {
+            return Err(PolarsError::ComputeError(
+                format!(
+                    "Dimension mismatch: left has {} dimensional vectors, right has {} dimensional vectors",
+                    left_data.dim, right_data.dim
+                ).into()
+            ));
+        }
+        
+        // Zero-copy matmul!
+        let m = left_data.n_rows;
+        let n = right_data.n_rows;
+        let result_vec = matmul_slice_f64(
+            left_data.as_slice(), 
+            right_data.as_slice(), 
+            m, 
+            n, 
+            left_data.dim
+        );
+        // Use Array output (efficient - uses from_vec + reshape)
+        return vec_to_array_series_f64(result_vec, m, n);
+    }
+    
+    // Fallback: copy to ndarray
     let left_matrix = series_to_matrix(left)?;
     let right_matrix = series_to_matrix(right)?;
     
@@ -204,21 +388,44 @@ fn matmul_impl_f64(left: &Series, right: &Series) -> PolarsResult<Series> {
         ));
     }
     
-    let result = left_matrix.dot(&right_matrix.t());
+    let result = matmul_f64(&left_matrix, &right_matrix);
     
-    let lists: Vec<Series> = result
-        .outer_iter()
-        .enumerate()
-        .map(|(i, row)| {
-            let values: Vec<f64> = row.to_vec();
-            Series::new(format!("{}", i).into(), values)
-        })
-        .collect();
-    
-    Series::new("matmul".into(), lists).cast(&DataType::List(Box::new(DataType::Float64)))
+    // Use Array output for consistency
+    let m = result.nrows();
+    let n = result.ncols();
+    let flat: Vec<f64> = result.iter().copied().collect();
+    vec_to_array_series_f64(flat, m, n)
 }
 
 fn matmul_impl_f32(left: &Series, right: &Series) -> PolarsResult<Series> {
+    // Try zero-copy path first
+    if let (Some(left_data), Some(right_data)) = 
+        (try_extract_contiguous_f32(left), try_extract_contiguous_f32(right)) 
+    {
+        if left_data.dim != right_data.dim {
+            return Err(PolarsError::ComputeError(
+                format!(
+                    "Dimension mismatch: left has {} dimensional vectors, right has {} dimensional vectors",
+                    left_data.dim, right_data.dim
+                ).into()
+            ));
+        }
+        
+        // Zero-copy matmul!
+        let m = left_data.n_rows;
+        let n = right_data.n_rows;
+        let result_vec = matmul_slice_f32(
+            left_data.as_slice(), 
+            right_data.as_slice(), 
+            m, 
+            n, 
+            left_data.dim
+        );
+        // Use Array output (efficient - uses from_vec + reshape)
+        return vec_to_array_series_f32(result_vec, m, n);
+    }
+    
+    // Fallback: copy to ndarray
     let left_matrix = series_to_matrix_f32(left)?;
     let right_matrix = series_to_matrix_f32(right)?;
     
@@ -232,49 +439,28 @@ fn matmul_impl_f32(left: &Series, right: &Series) -> PolarsResult<Series> {
         ));
     }
     
-    let result = left_matrix.dot(&right_matrix.t());
+    let result = matmul_f32(&left_matrix, &right_matrix);
     
-    // Return f32 output for memory efficiency
-    let lists: Vec<Series> = result
-        .outer_iter()
-        .enumerate()
-        .map(|(i, row)| {
-            let values: Vec<f32> = row.to_vec();
-            Series::new(format!("{}", i).into(), values)
-        })
-        .collect();
-    
-    Series::new("matmul".into(), lists).cast(&DataType::List(Box::new(DataType::Float32)))
+    // Use Array output for consistency
+    let m = result.nrows();
+    let n = result.ncols();
+    let flat: Vec<f32> = result.iter().copied().collect();
+    vec_to_array_series_f32(flat, m, n)
 }
 
-/// Main similarity join implementation
-/// 
-/// Uses f32 operations internally when input is f32 for memory efficiency,
-/// but always returns f64 scores for precision.
-pub fn similarity_join_impl(
-    left: &DataFrame,
-    right: &DataFrame,
-    left_on: &str,
-    right_on: &str,
+/// Helper to compute top-k indices and scores
+fn compute_topk_indices_scores(
+    queries: &Series,
+    corpus: &Series,
     k: usize,
-    metric_str: &str,
-    suffix: &str,
-) -> PolarsResult<DataFrame> {
-    let metric = Metric::from_str(metric_str)
-        .map_err(|e| PolarsError::ComputeError(e.into()))?;
-    
-    let left_embeddings = left.column(left_on)?;
-    let right_embeddings = right.column(right_on)?;
-    
+    metric: Metric,
+) -> PolarsResult<(ndarray::Array2<usize>, Vec<f64>)> {
     // Use f32 path if both inputs are f32
-    let use_f32 = is_f32_series(left_embeddings.as_materialized_series()) 
-        && is_f32_series(right_embeddings.as_materialized_series());
+    let use_f32 = is_f32_series(queries) && is_f32_series(corpus);
     
-    // Compute topk - separate paths for f32 and f64
-    // Both return (indices, scores as f64 Vec for uniform handling)
-    let (topk_indices, topk_scores): (ndarray::Array2<usize>, Vec<f64>) = if use_f32 {
-        let query_matrix = series_to_matrix_f32(left_embeddings.as_materialized_series())?;
-        let corpus_matrix = series_to_matrix_f32(right_embeddings.as_materialized_series())?;
+    if use_f32 {
+        let query_matrix = series_to_matrix_f32(queries)?;
+        let corpus_matrix = series_to_matrix_f32(corpus)?;
         
         if query_matrix.ncols() != corpus_matrix.ncols() {
             return Err(PolarsError::ComputeError(
@@ -291,10 +477,10 @@ pub fn similarity_join_impl(
         let (indices, scores_f32) = select_topk_with_scores_f32(&similarity, k, metric.higher_is_better());
         // Convert f32 scores to f64 Vec for uniform output
         let scores_f64: Vec<f64> = scores_f32.iter().map(|&x| x as f64).collect();
-        (indices, scores_f64)
+        Ok((indices, scores_f64))
     } else {
-        let query_matrix = series_to_matrix(left_embeddings.as_materialized_series())?;
-        let corpus_matrix = series_to_matrix(right_embeddings.as_materialized_series())?;
+        let query_matrix = series_to_matrix(queries)?;
+        let corpus_matrix = series_to_matrix(corpus)?;
         
         if query_matrix.ncols() != corpus_matrix.ncols() {
             return Err(PolarsError::ComputeError(
@@ -310,66 +496,58 @@ pub fn similarity_join_impl(
         let similarity = compute_similarity_matrix(&query_matrix, &corpus_matrix, metric);
         let (indices, scores_f64) = select_topk_with_scores(&similarity, k, metric.higher_is_better());
         let scores_vec: Vec<f64> = scores_f64.iter().copied().collect();
-        (indices, scores_vec)
-    };
-    
-    // Build result DataFrame
-    let left_col_names: Vec<PlSmallStr> = left.get_columns()
-        .iter()
-        .map(|c| c.name().clone())
-        .collect();
-    
-    let k = topk_indices.ncols();
-    
-    let mut all_cols: Vec<Column> = Vec::new();
-    for col in left.get_columns() {
-        let col_name = col.name();
-        if col_name.as_str() == left_on {
-            continue;
-        }
-        let expanded = repeat_each(col.as_materialized_series(), k)?;
-        all_cols.push(expanded.into_column());
+        Ok((indices, scores_vec))
     }
-    
-    let flat_indices: Vec<u32> = topk_indices.iter().map(|&x| x as u32).collect();
-    let indices_series = Series::new("idx".into(), flat_indices);
-    let idx_ca = indices_series.idx()?;
-    
-    for col in right.get_columns() {
-        let col_name = col.name().clone();
-        if col_name.as_str() == right_on {
-            continue;
-        }
-        
-        let gathered = unsafe { col.as_materialized_series().take_unchecked(idx_ca) };
-        
-        let new_name = if left_col_names.contains(&col_name) {
-            PlSmallStr::from(format!("{}{}", col_name, suffix))
-        } else {
-            col_name
-        };
-        
-        all_cols.push(gathered.with_name(new_name).into_column());
-    }
-    
-    // Scores already collected as f64 Vec
-    let score_series = Series::new("_score".into(), topk_scores);
-    all_cols.push(score_series.into_column());
-    
-    DataFrame::new(all_cols)
 }
 
-/// Repeat each element of a Series k times
-fn repeat_each(series: &Series, k: usize) -> PolarsResult<Series> {
-    let n = series.len();
-    let indices: Vec<u32> = (0..n as u32)
-        .flat_map(|i| std::iter::repeat_n(i, k))
-        .collect();
+/// Top-k implementation for Expression API
+/// Returns a Series of List[Struct { index: u32, score: f64 }]
+pub fn topk_impl(
+    queries: &Series,
+    corpus: &Series,
+    k: usize,
+    metric_str: &str,
+) -> PolarsResult<Series> {
+    // Handle empty queries - return empty series with correct type
+    if queries.len() == 0 {
+        let struct_dtype = DataType::Struct(vec![
+            Field::new("index".into(), DataType::UInt32),
+            Field::new("score".into(), DataType::Float64),
+        ]);
+        let empty_series = Series::new_empty("topk".into(), &DataType::List(Box::new(struct_dtype)));
+        return Ok(empty_series);
+    }
     
-    let idx_series = Series::new("idx".into(), indices);
-    let idx_ca = idx_series.idx()?;
+    let metric = Metric::from_str(metric_str)
+        .map_err(|e| PolarsError::ComputeError(e.into()))?;
+        
+    let (indices, scores) = compute_topk_indices_scores(queries, corpus, k, metric)?;
     
-    Ok(unsafe { series.take_unchecked(idx_ca) })
+    let n_queries = indices.nrows();
+    let k_actual = indices.ncols();
+    
+    let mut list_rows_series: Vec<Series> = Vec::with_capacity(n_queries);
+    
+    for i in 0..n_queries {
+        let row_indices_vals = indices.row(i);
+        // Extract scores for this row from the flattened scores vec
+        let row_start = i * k_actual;
+        let row_end = row_start + k_actual;
+        let row_scores_vals = &scores[row_start..row_end];
+        
+        let idx_vec: Vec<u32> = row_indices_vals.iter().map(|&x| x as u32).collect();
+        let score_vec: Vec<f64> = row_scores_vals.into();
+        
+        let s_idx = Series::new("index".into(), idx_vec);
+        let s_score = Series::new("score".into(), score_vec);
+        
+        let struct_df = DataFrame::new(vec![s_idx.into_column(), s_score.into_column()])?;
+        let struct_series = struct_df.into_struct("match".into()).into_series();
+        
+        list_rows_series.push(struct_series);
+    }
+    
+    Ok(Series::new("topk".into(), list_rows_series))
 }
 
 #[cfg(test)]
@@ -404,15 +582,5 @@ mod tests {
         assert_eq!(matrix.ncols(), 3);
         assert!((matrix[[0, 0]] - 1.0).abs() < 1e-5);
         assert!((matrix[[1, 2]] - 6.0).abs() < 1e-5);
-    }
-    
-    #[test]
-    fn test_repeat_each() {
-        let s = Series::new("test".into(), vec![1i32, 2, 3]);
-        let repeated = repeat_each(&s, 2).unwrap();
-        
-        assert_eq!(repeated.len(), 6);
-        let values: Vec<i32> = repeated.i32().unwrap().into_no_null_iter().collect();
-        assert_eq!(values, vec![1, 1, 2, 2, 3, 3]);
     }
 }
