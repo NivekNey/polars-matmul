@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/NivekNey/polars-matmul"
+Repository = "https://github.com/HolosStack/polars-matmul"
 
 [project.optional-dependencies]
 test = [
