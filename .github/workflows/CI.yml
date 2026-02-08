@@ -83,45 +83,29 @@ jobs:
 #           name: wheels-linux-aarch64
 #           path: dist
 
-# Windows build disabled - OpenBLAS linking is complex, can be tackled later
-# Pre-built wheels are not available for Windows currently
-#   windows:
-#     runs-on: windows-latest
-#     timeout-minutes: 30
-#     strategy:
-#       matrix:
-#         target: [x64]
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.10'
-#           architecture: ${{ matrix.target }}
-#       - name: Download OpenBLAS
-#         shell: pwsh
-#         run: |
-#           # Download pre-built OpenBLAS release (much faster than vcpkg)
-#           $version = "0.3.28"
-#           $url = "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${version}/OpenBLAS-${version}-x64.zip"
-#           Invoke-WebRequest -Uri $url -OutFile openblas.zip
-#           Expand-Archive -Path openblas.zip -DestinationPath C:\openblas
-#           
-#           # List contents for debugging
-#           Get-ChildItem -Recurse C:\openblas | Select-Object FullName
-#       - name: Build wheels
-#         uses: PyO3/maturin-action@v1
-#         env:
-#           # Point openblas-src to the downloaded binaries
-#           OPENBLAS_PATH: C:\openblas
-#         with:
-#           target: ${{ matrix.target }}
-#           args: --release --out dist --find-interpreter
-#           sccache: 'true'
-#       - name: Upload wheels
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: wheels-windows-${{ matrix.target }}
-#           path: dist
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        target: [x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          architecture: ${{ matrix.target }}
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: dist
 
   macos:
     runs-on: macos-latest
@@ -134,16 +118,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -190,24 +164,9 @@ jobs:
           pip install pytest numpy pyarrow polars
           pip install dist/*cp310*.whl --force-reinstall
           pytest tests/ -v -s
-
-#   test-linux-arm64:
-#     runs-on: ubuntu-24.04-arm
-#     needs: [linux-arm64]
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.10'
-#       - uses: actions/download-artifact@v4
-#         with:
-#           name: wheels-linux-aarch64
-#           path: dist
-#       - name: Install and test
-#         run: |
-#           pip install pytest numpy pyarrow polars
-#           pip install dist/*cp310*.whl --force-reinstall
-#           pytest tests/ -v -s
+      - name: Run Benchmark
+        run: |
+          python benchmark.py
 
   test-macos:
     runs-on: macos-latest
@@ -228,42 +187,38 @@ jobs:
           pip install pytest numpy pyarrow polars
           pip install dist/*cp310*.whl --force-reinstall
           pytest tests/ -v -s
+      - name: Run Benchmark
+        run: |
+          python benchmark.py
 
-# Windows testing disabled - requires OpenBLAS DLL in system PATH
-# Windows users need to install OpenBLAS separately (e.g., via conda, vcpkg, or direct download)
-#   test-windows:
-#     runs-on: windows-latest
-#     needs: [windows]
-#     env:
-#       VCPKG_ROOT: C:\vcpkg
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.10'
-#       - name: Install OpenBLAS via vcpkg
-#         run: |
-#           vcpkg install openblas:x64-windows
-#       - uses: actions/download-artifact@v4
-#         with:
-#           name: wheels-windows-x64
-#           path: dist
-#       - name: Install and test
-#         run: |
-#           # Add vcpkg bin to PATH for DLL access
-#           $env:PATH = "C:\vcpkg\installed\x64-windows\bin;$env:PATH"
-#           dir dist
-#           python -c "import sys; print(sys.version); print(sys.platform)"
-#           pip install pytest numpy pyarrow polars
-#           Get-ChildItem dist\*cp310*.whl | ForEach-Object { pip install $_.FullName --force-reinstall }
-#           pytest tests/ -v -s
+  test-windows:
+    runs-on: windows-latest
+    needs: [windows]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: dist
+      - name: Install and test
+        run: |
+          dir dist
+          python -c "import sys; print(sys.version); print(sys.platform)"
+          pip install pytest numpy pyarrow polars
+          Get-ChildItem dist\*cp310*.whl | ForEach-Object { pip install $_.FullName --force-reinstall }
+          pytest tests/ -v -s
+      - name: Run Benchmark
+        run: |
+          python benchmark.py
 
   release:
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
-    # Note: Windows build is disabled - BLAS linking is complex
-    needs: [linux, macos, sdist, test-linux, test-macos]
+    needs: [linux, macos, windows, sdist, test-linux, test-macos, test-windows]
     environment: pypi
     permissions:
       id-token: write

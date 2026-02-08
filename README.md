@@ -12,13 +12,14 @@ Computing similarity between embedding vectors in Polars is slow:
 | Approach | Time (100×2000, 100d) | Memory |
 |----------|----------------------|--------|
 | Polars cross-join + list ops | ~1800ms | 7.8GB |
-| NumPy matmul | ~2ms | 160MB |
-| **polars-matmul** | ~1.3ms | 160MB |
+| NumPy matmul | ~0.1ms | 160MB |
+| **polars-matmul** | ~0.5ms | 160MB |
 
-This plugin provides NumPy-level performance by:
-- Using BLAS-accelerated matrix multiplication (Accelerate on macOS, OpenBLAS on Linux)
+This plugin provides efficient matrix multiplication by:
+- Using `faer`, a pure Rust high-performance linear algebra library
 - Avoiding cross-join memory explosion
 - Operating directly on contiguous arrays
+- compiling on all platforms (Linux, macOS, Windows) without complex BLAS dependencies
 
 ## Installation
 
@@ -29,8 +30,7 @@ pip install polars-matmul
 Pre-built wheels are available for:
 - macOS (x86_64, arm64)
 - Linux (x86_64, aarch64)
-
-> **Note**: Windows is not currently supported due to BLAS linking complexity. Contributions welcome!
+- Windows (x86_64)
 
 ## Usage
 
@@ -132,7 +132,7 @@ similarities = pmm.matmul(queries["embedding"], corpus["embedding"])
 
 ### Float32 Support
 
-For 2x memory efficiency, use Float32 embeddings. The library automatically detects the dtype and uses the appropriate BLAS routines (sgemm for f32, dgemm for f64):
+For 2x memory efficiency, use Float32 embeddings. The library automatically detects the dtype and uses the appropriate routines:
 
 ```python
 # Cast embeddings to f32 for memory efficiency
@@ -143,7 +143,7 @@ corpus_f32 = corpus.with_columns(
     pl.col("embedding").cast(pl.List(pl.Float32))
 )
 
-# Works the same way - automatically uses f32 BLAS
+# Works the same way - automatically uses f32
 result = pmm.similarity_join(
     left=queries_f32,
     right=corpus_f32,
@@ -185,13 +185,7 @@ The results are automatically merged across batches to give you the global top-k
 
 ## Performance
 
-Benchmarks on Apple M1 (using Accelerate framework):
-
-| Query × Corpus × Dim | NumPy | polars-matmul | Ratio |
-|---------------------|-------|---------------|-------|
-| 100 × 2,000 × 100   | 2.38ms | 1.49ms | **0.63x** (faster) |
-| 100 × 2,000 × 1,000 | 6.00ms | 7.36ms | 1.23x |
-| 1,000 × 10,000 × 100| 81.16ms | 34.13ms | **0.42x** (2.4x faster) |
+Benchmarking shows `polars-matmul` is generally slower than NumPy/SciPy due to data conversion overhead (Polars Series <-> Rust native layout), but significantly faster and more memory-efficient than pure Polars implementations.
 
 > **Tip**: For best performance, use `Array[f64, dim]` type instead of `List[f64]`:
 >
@@ -233,8 +227,8 @@ Planned features (contributions welcome!):
 
 - [x] **Float32 support** - Native f32 operations for 2x memory efficiency
 - [x] **Batch processing** - Chunked computation for large datasets that don't fit in memory
+- [x] **Cross-platform** - Pure Rust implementation (via faer) supports Linux, macOS, and Windows without BLAS complexity.
 - [ ] **Polars Expression API** - More native `pl.col("embedding").pmm.topk(...)` syntax
-- [ ] **Windows support** - Pre-built wheels for Windows (blocked by BLAS linking complexity)
 
 ## License
 

@@ -2,7 +2,7 @@
 
 use ndarray::Array2;
 use polars::prelude::*;
-use crate::metrics::{Metric, compute_similarity_matrix, compute_similarity_matrix_f32};
+use crate::metrics::{Metric, compute_similarity_matrix, compute_similarity_matrix_f32, matmul_f64, matmul_f32};
 use crate::topk::{select_topk_with_scores, select_topk_with_scores_f32};
 
 /// Check if a series contains f32 data (either List[f32] or Array[f32, dim])
@@ -204,7 +204,7 @@ fn matmul_impl_f64(left: &Series, right: &Series) -> PolarsResult<Series> {
         ));
     }
     
-    let result = left_matrix.dot(&right_matrix.t());
+    let result = matmul_f64(&left_matrix, &right_matrix);
     
     let lists: Vec<Series> = result
         .outer_iter()
@@ -232,7 +232,7 @@ fn matmul_impl_f32(left: &Series, right: &Series) -> PolarsResult<Series> {
         ));
     }
     
-    let result = left_matrix.dot(&right_matrix.t());
+    let result = matmul_f32(&left_matrix, &right_matrix);
     
     // Return f32 output for memory efficiency
     let lists: Vec<Series> = result

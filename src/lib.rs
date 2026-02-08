@@ -3,16 +3,7 @@
 //! This crate provides fast similarity search operations using BLAS-accelerated
 //! matrix multiplication.
 
-// Force BLAS static linking - these extern crate declarations prevent
-// the compiler from optimizing away the unused BLAS dependencies
-#[cfg(target_os = "linux")]
-extern crate openblas_src;
-
-#[cfg(target_os = "macos")]
-extern crate accelerate_src;
-
-#[cfg(target_os = "windows")]
-extern crate openblas_src;
+// BLAS dependencies removed in favor of faer (pure Rust)
 
 mod matmul;
 mod metrics;
