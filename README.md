@@ -99,16 +99,34 @@ pl.col("embedding").pmm.matmul(corpus["embedding"], flatten=True)
 
 **Returns:** `Array[f64, N]` or `Array[f32, N]` (where N = len(corpus))
 
+### `topk_search(queries, corpus, k=10, ...)`
+
+**Convenience function** for the full search workflow (topk → explode → join).
+
+```python
+from polars_matmul import topk_search
+
+results = topk_search(queries, corpus, k=5)
+# Returns flat DataFrame: query columns + score + corpus columns
+```
+
+**Parameters:**
+- `queries`, `corpus`: DataFrames
+- `query_col`, `corpus_col`: Embedding column names (default: "embedding")
+- `k`: Number of results per query
+- `metric`: Similarity metric
+
 ---
 
 ## Common Patterns
 
-### Explode and Join
+### Manual Explode/Join (for custom control)
 
-Flatten results and join with corpus metadata:
+When you need to filter or transform between steps:
 
 ```python
-flat_results = (
+# Step by step for custom control
+result = (
     queries
     .with_columns(pl.col("embedding").pmm.topk(corpus["embedding"], k=2).alias("match"))
     .explode("match")

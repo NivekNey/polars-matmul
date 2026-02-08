@@ -5,6 +5,7 @@ import polars as pl
 import numpy as np
 
 import polars_matmul  # noqa: F401 - registers the .pmm namespace
+from polars_matmul import topk_search
 
 
 class TestTopk:
@@ -767,3 +768,89 @@ class TestLazyFrameEdgeCases:
         
         assert len(result) == 3
 
+
+class TestTopkSearch:
+    """Tests for topk_search convenience function"""
+    
+    def test_basic(self):
+        """Test basic topk_search usage"""
+        queries = pl.DataFrame({
+            "query_id": [0, 1],
+            "embedding": [[1.0, 0.0], [0.0, 1.0]],
+        })
+        corpus = pl.DataFrame({
+            "corpus_id": ["a", "b"],
+            "embedding": [[1.0, 0.0], [0.0, 1.0]],
+        })
+        
+        result = topk_search(queries, corpus, k=1)
+        
+        # Should have 2 rows (1 match per query)
+        assert len(result) == 2
+        
+        # Should have query columns + score + corpus columns (minus duplicate embedding)
+        assert "query_id" in result.columns
+        assert "score" in result.columns
+        assert "corpus_id" in result.columns
+        assert result.columns.count("embedding") == 1  # Only one embedding column
+        
+        # Check scores - should be perfect matches
+        assert result["score"].to_list() == [1.0, 1.0]
+    
+    def test_with_k_greater_than_1(self):
+        """Test topk_search with k > 1"""
+        queries = pl.DataFrame({
+            "query_id": [0],
+            "embedding": [[1.0, 0.0, 0.0]],
+        })
+        corpus = pl.DataFrame({
+            "corpus_id": ["a", "b", "c"],
+            "embedding": [[1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.0, 0.0, 1.0]],
+        })
+        
+        result = topk_search(queries, corpus, k=2)
+        
+        # Should have 2 rows
+        assert len(result) == 2
+        
+        # Both should have query_id = 0
+        assert result["query_id"].to_list() == [0, 0]
+        
+        # corpus_id "a" should be first (perfect match)
+        assert result["corpus_id"][0] == "a"
+    
+    def test_custom_column_names(self):
+        """Test topk_search with custom column names"""
+        queries = pl.DataFrame({
+            "id": [0],
+            "vec": [[1.0, 0.0]],
+        })
+        corpus = pl.DataFrame({
+            "item": ["x"],
+            "vec": [[1.0, 0.0]],
+        })
+        
+        result = topk_search(queries, corpus, query_col="vec", corpus_col="vec", k=1)
+        
+        assert "id" in result.columns
+        assert "item" in result.columns
+        assert "score" in result.columns
+    
+    def test_with_metric(self):
+        """Test topk_search with different metrics"""
+        queries = pl.DataFrame({
+            "id": [0],
+            "embedding": [[1.0, 0.0]],
+        })
+        corpus = pl.DataFrame({
+            "label": ["a", "b"],
+            "embedding": [[2.0, 0.0], [1.0, 0.0]],  # Same direction, different magnitude
+        })
+        
+        # Cosine: both should have same score (1.0)
+        result_cosine = topk_search(queries, corpus, k=2, metric="cosine")
+        np.testing.assert_allclose(result_cosine["score"].to_list(), [1.0, 1.0], rtol=1e-5)
+        
+        # Dot: "a" should score higher (2.0 vs 1.0)
+        result_dot = topk_search(queries, corpus, k=2, metric="dot")
+        assert result_dot["label"][0] == "a"

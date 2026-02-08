@@ -31,7 +31,7 @@ import polars as pl
 from typing import Literal
 
 __version__ = "0.1.0"
-__all__ = ["PmmNamespace"]
+__all__ = ["PmmNamespace", "topk_search"]
 
 Metric = Literal["cosine", "dot", "euclidean"]
 
@@ -195,3 +195,59 @@ class PmmNamespace:
                 return_dtype=dtype,
             )
 
+
+def topk_search(
+    queries: pl.DataFrame,
+    corpus: pl.DataFrame,
+    query_col: str = "embedding",
+    corpus_col: str = "embedding",
+    k: int = 10,
+    metric: Metric = "cosine",
+) -> pl.DataFrame:
+    """
+    Find top-k similar corpus items for each query (convenience function).
+    
+    This is a high-level function that handles the full similarity search workflow:
+    topk -> explode -> unnest -> join with corpus.
+    
+    Args:
+        queries: DataFrame containing query embeddings
+        corpus: DataFrame containing corpus embeddings  
+        query_col: Column name for query embeddings (default: "embedding")
+        corpus_col: Column name for corpus embeddings (default: "embedding")
+        k: Number of top matches per query
+        metric: Similarity metric ("cosine", "dot", "euclidean")
+        
+    Returns:
+        DataFrame with all query columns + "score" + all corpus columns
+        (one row per query-corpus match)
+        
+    Example:
+        >>> from polars_matmul import topk_search
+        >>> 
+        >>> results = topk_search(queries, corpus, k=5)
+        >>> # Returns flat DataFrame ready for analysis:
+        >>> # query_id | score | corpus_id | label | ...
+    """
+    # Get the corpus embedding series
+    corpus_emb = corpus[corpus_col]
+    
+    # Run topk, explode, unnest
+    result = (
+        queries
+        .with_columns(
+            pl.col(query_col).pmm.topk(corpus_emb, k=k, metric=metric).alias("_pmm_match")
+        )
+        .explode("_pmm_match")
+        .unnest("_pmm_match")
+    )
+    
+    # Prepare corpus for join (add index, drop embedding col to avoid collision)
+    corpus_for_join = corpus.with_row_index("index")
+    if corpus_col in corpus_for_join.columns:
+        corpus_for_join = corpus_for_join.drop(corpus_col)
+    
+    # Join and clean up
+    result = result.join(corpus_for_join, on="index").drop("index")
+    
+    return result
