@@ -96,6 +96,111 @@ pub fn matmul_f64(query: &Array2<f64>, corpus: &Array2<f64>) -> Array2<f64> {
     result
 }
 
+/// Zero-copy matmul: C = A * B^T using faer directly on raw slices
+/// This avoids the ndarray allocation entirely.
+/// 
+/// # Arguments
+/// * `query_slice` - Contiguous slice of query data, row-major (m * k elements)
+/// * `corpus_slice` - Contiguous slice of corpus data, row-major (n * k elements)
+/// * `m` - Number of query rows
+/// * `n` - Number of corpus rows
+/// * `k` - Vector dimension
+/// 
+/// # Returns
+/// Vec<f64> of size m*n in row-major order
+pub fn matmul_slice_f64(
+    query_slice: &[f64],
+    corpus_slice: &[f64],
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Vec<f64> {
+    assert_eq!(query_slice.len(), m * k, "Query slice size mismatch");
+    assert_eq!(corpus_slice.len(), n * k, "Corpus slice size mismatch");
+    
+    let mut result = vec![0.0f64; m * n];
+    
+    unsafe {
+        // Query: m x k, row-major (row_stride = k, col_stride = 1)
+        let lhs = from_raw_parts::<f64>(
+            query_slice.as_ptr(),
+            m, k,
+            k as isize, 1,
+        );
+        
+        // Corpus: n x k, row-major (row_stride = k, col_stride = 1)
+        let rhs = from_raw_parts::<f64>(
+            corpus_slice.as_ptr(),
+            n, k,
+            k as isize, 1,
+        );
+        
+        // Result: m x n, row-major (row_stride = n, col_stride = 1)
+        let dest = from_raw_parts_mut::<f64>(
+            result.as_mut_ptr(),
+            m, n,
+            n as isize, 1,
+        );
+        
+        // Compute dest = lhs * rhs^T
+        matmul(
+            dest,
+            lhs,
+            rhs.transpose(),
+            None,
+            1.0,
+            Parallelism::Rayon(0),
+        );
+    }
+    
+    result
+}
+
+/// Zero-copy matmul for f32
+pub fn matmul_slice_f32(
+    query_slice: &[f32],
+    corpus_slice: &[f32],
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Vec<f32> {
+    assert_eq!(query_slice.len(), m * k, "Query slice size mismatch");
+    assert_eq!(corpus_slice.len(), n * k, "Corpus slice size mismatch");
+    
+    let mut result = vec![0.0f32; m * n];
+    
+    unsafe {
+        let lhs = from_raw_parts::<f32>(
+            query_slice.as_ptr(),
+            m, k,
+            k as isize, 1,
+        );
+        
+        let rhs = from_raw_parts::<f32>(
+            corpus_slice.as_ptr(),
+            n, k,
+            k as isize, 1,
+        );
+        
+        let dest = from_raw_parts_mut::<f32>(
+            result.as_mut_ptr(),
+            m, n,
+            n as isize, 1,
+        );
+        
+        matmul(
+            dest,
+            lhs,
+            rhs.transpose(),
+            None,
+            1.0,
+            Parallelism::Rayon(0),
+        );
+    }
+    
+    result
+}
+
 pub fn matmul_f32(query: &Array2<f32>, corpus: &Array2<f32>) -> Array2<f32> {
     let m = query.nrows();
     let k = query.ncols();
