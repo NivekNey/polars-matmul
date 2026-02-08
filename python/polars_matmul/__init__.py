@@ -1,8 +1,8 @@
 """
-polars-matmul: BLAS-accelerated similarity joins for Polars
+polars-matmul: High-performance similarity joins for Polars
 
 This package provides fast similarity search operations on embedding columns
-using BLAS-accelerated matrix multiplication.
+using pure Rust matrix multiplication (faer).
 
 Example:
     >>> import polars as pl
@@ -56,7 +56,7 @@ def similarity_join(
     Perform a similarity join between two DataFrames based on embedding columns.
     
     This function finds the top-k most similar rows from `right` for each row in `left`,
-    using BLAS-accelerated matrix multiplication for high performance.
+    using optimized matrix multiplication for high performance.
     
     Args:
         left: The query DataFrame or LazyFrame
@@ -243,9 +243,9 @@ def matmul(
     Returns a Series of List[f64] where each element contains the dot products
     of one left vector with all right vectors.
     
-    Automatically uses f32 or f64 BLAS based on input dtype:
-    - If both inputs are f32, uses sgemm and returns List[f32]
-    - Otherwise uses dgemm and returns List[f64]
+    Automatically uses f32 or f64 operations based on input dtype:
+    - If both inputs are f32, uses f32 mult and returns List[f32]
+    - Otherwise uses f64 mult and returns List[f64]
     
     Args:
         left: Series of embedding vectors (List or Array type)
