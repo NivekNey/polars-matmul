@@ -10,7 +10,7 @@ import polars_matmul as pmm
 
 def numpy_matmul(query: np.ndarray, corpus: np.ndarray) -> np.ndarray:
     """Reference NumPy matrix multiplication."""
-    return query @ corpus.T
+    return np.dot(query, corpus.T)
 
 
 def polars_matmul(left: pl.Series, right: pl.Series):
@@ -79,7 +79,7 @@ class TestPerformance:
         query_np = np.random.randn(n_queries, dim).astype(np.float64)
         corpus_np = np.random.randn(n_corpus, dim).astype(np.float64)
         
-        expected = query_np @ corpus_np.T
+        expected = np.dot(query_np, corpus_np.T)
         
         left = pl.Series("l", query_np.tolist())
         right = pl.Series("r", corpus_np.tolist())

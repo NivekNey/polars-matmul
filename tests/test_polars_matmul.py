@@ -204,7 +204,7 @@ class TestMatmul:
         right = pl.Series("r", right_np.tolist())
         
         result = pmm.matmul(left, right)
-        expected = left_np @ right_np.T
+        expected = np.dot(left_np, right_np.T)
         
         for i in range(10):
             actual = result[i].to_list()
@@ -223,7 +223,7 @@ class TestNumpyEquivalence:
         # Normalize for cosine similarity
         query_norm = query / np.linalg.norm(query, axis=1, keepdims=True)
         corpus_norm = corpus / np.linalg.norm(corpus, axis=1, keepdims=True)
-        expected = query_norm @ corpus_norm.T
+        expected = np.dot(query_norm, corpus_norm.T)
         
         query_df = pl.DataFrame({
             "id": range(5),
@@ -452,7 +452,7 @@ class TestFloat32Support:
         assert result.dtype == pl.List(pl.Float32)
         
         # Check values
-        expected = np.array([[1.0, 2.0], [3.0, 4.0]]) @ np.array([[1.0, 0.0], [0.0, 1.0]]).T
+        expected = np.dot(np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([[1.0, 0.0], [0.0, 1.0]]).T)
         for i in range(2):
             np.testing.assert_allclose(result[i].to_list(), expected[i], rtol=1e-5)
     

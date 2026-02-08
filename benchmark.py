@@ -15,7 +15,7 @@ def benchmark_numpy(query: np.ndarray, corpus: np.ndarray, n_iterations: int = 1
     times = []
     for _ in range(n_iterations):
         start = time.perf_counter()
-        _ = query @ corpus.T
+        _ = np.dot(query, corpus.T)
         times.append((time.perf_counter() - start) * 1000)
     return np.median(times)
 
@@ -48,7 +48,7 @@ def run_benchmark(n_queries: int, n_corpus: int, dim: int, dtype=np.float64):
     
     # Warmup (important for accurate measurement)
     for _ in range(3):
-        _ = query_np @ corpus_np.T
+        _ = np.dot(query_np, corpus_np.T)
         _ = pmm.matmul(left, right)
     
     # Benchmark
