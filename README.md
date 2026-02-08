@@ -240,7 +240,10 @@ Planned features (contributions welcome!):
 
 - [x] **Float32 support** - Native f32 operations for 2x memory efficiency
 - [x] **Batch processing** - Chunked computation for large datasets that don't fit in memory
-- [x] **Cross-platform** - Pure Rust implementation (via faer) supports Linux, macOS, and Windows without BLAS complexity.
+- [x] **Cross-platform** - Pure Rust implementation (via faer) supports Linux, macOS, and Windows without BLAS complexity
+- [ ] **Zero-copy data extraction** - Eliminate data copying from Polars Series to ndarray (current main bottleneck)
+- [ ] **Direct faer views** - Use `faer::mat::from_raw_parts` directly on Polars' underlying memory to avoid intermediate allocations
+- [ ] **Profiling & hotpath optimization** - Identify and optimize the critical path for ≤10% overhead vs NumPy
 - [ ] **Polars Expression API** - More native `pl.col("embedding").pmm.topk(...)` syntax
 
 ## License
