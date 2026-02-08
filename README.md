@@ -77,7 +77,13 @@ pl.col("embedding").pmm.topk(corpus["embedding"], k=10)
 **Parameters:**
 - `corpus`: Series of embeddings
 - `k`: Number of results per query
-- `metric`: `"cosine"` (default), `"dot"`, or `"euclidean"`
+- `metric`: Similarity metric (see table below)
+
+| Metric | Description | Use Case |
+|--------|-------------|----------|
+| `"cosine"` | Cosine similarity (default) | Text embeddings |
+| `"dot"` | Raw dot product | Pre-normalized vectors |
+| `"euclidean"` | L2 distance (lower = more similar) | Clustering |
 
 **Returns:** `List[Struct{index: u32, score: f64}]`
 
@@ -117,17 +123,7 @@ flat_results = (
 )
 ```
 
----
 
-### Metrics
-
-| Metric | Description | Use Case |
-|--------|-------------|----------|
-| `"cosine"` | Cosine similarity (default) | Text embeddings |
-| `"dot"` | Raw dot product | Pre-normalized vectors |
-| `"euclidean"` | L2 distance (lower = more similar) | Clustering |
-
----
 
 ## Performance Tips
 
