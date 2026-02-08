@@ -24,6 +24,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -84,7 +91,16 @@ jobs:
         with:
           python-version: '3.10'
           architecture: ${{ matrix.target }}
+      - name: Cache vcpkg
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-openblas-${{ matrix.target }}-${{ hashFiles('Cargo.toml') }}
+          restore-keys: |
+            vcpkg-openblas-${{ matrix.target }}-
       - name: Install Static OpenBLAS via vcpkg
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         run: |
           vcpkg install openblas:x64-windows-static
           echo "OPENBLAS_DIR=C:/vcpkg/installed/x64-windows-static" >> $env:GITHUB_ENV
