@@ -159,6 +159,8 @@ jobs:
           path: dist
       - name: Install and test
         run: |
+          ls -R dist/
+          python -c "import sys; print(sys.version); print(sys.platform)"
           pip install pytest numpy pyarrow polars
           pip install dist/*cp310*.whl --force-reinstall
           pytest tests/ -v -s
@@ -195,6 +197,8 @@ jobs:
           path: dist
       - name: Install and test
         run: |
+          ls -R dist/
+          python -c "import sys; print(sys.version); print(sys.platform)"
           pip install pytest numpy pyarrow polars
           pip install dist/*cp310*.whl --force-reinstall
           pytest tests/ -v -s
@@ -213,8 +217,10 @@ jobs:
           path: dist
       - name: Install and test
         run: |
+          dir dist
+          python -c "import sys; print(sys.version); print(sys.platform)"
           pip install pytest numpy pyarrow polars
-          pip install dist/*cp310*.whl --force-reinstall
+          Get-ChildItem dist\*cp310*.whl | ForEach-Object { pip install $_.FullName --force-reinstall }
           pytest tests/ -v -s
 
   release:
