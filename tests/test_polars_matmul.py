@@ -530,3 +530,102 @@ class TestFloat32Support:
         # Should work with Array type
         assert result.dtype == pl.List(pl.Float32)
         assert len(result) == 2
+
+
+class TestBatchProcessing:
+    """Tests for batch processing of large corpuses"""
+    
+    def test_batch_same_results(self):
+        """Verify batch processing produces same results as non-batched"""
+        np.random.seed(42)
+        
+        queries = pl.DataFrame({
+            "query_id": list(range(5)),
+            "embedding": np.random.randn(5, 32).tolist()
+        })
+        corpus = pl.DataFrame({
+            "corpus_id": list(range(100)),
+            "embedding": np.random.randn(100, 32).tolist()
+        })
+        
+        # Without batch
+        result1 = pmm.similarity_join(
+            queries, corpus, "embedding", "embedding", k=3
+        ).sort(["query_id", "_score"], descending=[False, True])
+        
+        # With batch
+        result2 = pmm.similarity_join(
+            queries, corpus, "embedding", "embedding", k=3, batch_size=30
+        ).sort(["query_id", "_score"], descending=[False, True])
+        
+        # Should have same number of results
+        assert len(result1) == len(result2)
+        
+        # Top scores should match
+        for qid in range(5):
+            s1 = result1.filter(pl.col("query_id") == qid)["_score"].to_list()
+            s2 = result2.filter(pl.col("query_id") == qid)["_score"].to_list()
+            np.testing.assert_allclose(s1, s2, rtol=1e-5)
+    
+    def test_batch_smaller_than_corpus(self):
+        """Test when batch_size is smaller than k"""
+        queries = pl.DataFrame({
+            "query_id": [0],
+            "embedding": [[1.0, 0.0, 0.0]]
+        })
+        corpus = pl.DataFrame({
+            "corpus_id": list(range(20)),
+            "embedding": [[float(i), 0.0, 0.0] for i in range(20)]
+        })
+        
+        # batch_size < k should still work
+        result = pmm.similarity_join(
+            queries, corpus, "embedding", "embedding", k=5, batch_size=3
+        )
+        
+        assert len(result) == 5
+    
+    def test_batch_disabled_when_none(self):
+        """Test that batch_size=None uses regular path"""
+        queries = pl.DataFrame({
+            "query_id": [0],
+            "embedding": [[1.0, 0.0]]
+        })
+        corpus = pl.DataFrame({
+            "corpus_id": [0, 1],
+            "embedding": [[1.0, 0.0], [0.0, 1.0]]
+        })
+        
+        result = pmm.similarity_join(
+            queries, corpus, "embedding", "embedding", k=2, batch_size=None
+        )
+        
+        assert len(result) == 2
+    
+    def test_batch_euclidean(self):
+        """Test batch processing with euclidean metric (lower is better)"""
+        np.random.seed(42)
+        
+        queries = pl.DataFrame({
+            "query_id": list(range(3)),
+            "embedding": np.random.randn(3, 16).tolist()
+        })
+        corpus = pl.DataFrame({
+            "corpus_id": list(range(50)),
+            "embedding": np.random.randn(50, 16).tolist()
+        })
+        
+        result1 = pmm.similarity_join(
+            queries, corpus, "embedding", "embedding", k=5, metric="euclidean"
+        ).sort(["query_id", "_score"])
+        
+        result2 = pmm.similarity_join(
+            queries, corpus, "embedding", "embedding", k=5, metric="euclidean", batch_size=15
+        ).sort(["query_id", "_score"])
+        
+        # Scores should match
+        np.testing.assert_allclose(
+            result1["_score"].to_list(),
+            result2["_score"].to_list(),
+            rtol=1e-5
+        )

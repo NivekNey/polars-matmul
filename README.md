@@ -156,6 +156,25 @@ result = pmm.similarity_join(
 similarities_f32 = pmm.matmul(queries_f32["embedding"], corpus_f32["embedding"])
 ```
 
+### Batch Processing
+
+For very large corpuses that don't fit in memory, use the `batch_size` parameter to process in chunks:
+
+```python
+# Process 10,000 corpus items at a time
+result = pmm.similarity_join(
+    left=queries,
+    right=large_corpus,  # millions of rows
+    left_on="embedding",
+    right_on="embedding",
+    k=10,
+    batch_size=10000,  # Reduces peak memory usage
+)
+```
+
+The results are automatically merged across batches to give you the global top-k.
+
+
 ## Metrics
 
 | Metric | Description | Best for |
@@ -213,7 +232,7 @@ pytest tests/
 Planned features (contributions welcome!):
 
 - [x] **Float32 support** - Native f32 operations for 2x memory efficiency
-- [ ] **Batch processing** - Chunked computation for large datasets that don't fit in memory
+- [x] **Batch processing** - Chunked computation for large datasets that don't fit in memory
 - [ ] **Polars Expression API** - More native `pl.col("embedding").pmm.topk(...)` syntax
 - [ ] **Windows support** - Pre-built wheels for Windows (blocked by BLAS linking complexity)
 
