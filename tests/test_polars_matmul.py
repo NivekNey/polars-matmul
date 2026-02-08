@@ -322,8 +322,8 @@ class TestFloat32Support:
             pl.col("embedding").pmm.matmul(corpus_emb).alias("scores")
         )
         
-        # Result should be List[f32]
-        assert result["scores"].dtype == pl.List(pl.Float32)
+        # Result should be Array[f32, n_corpus]
+        assert result["scores"].dtype == pl.Array(pl.Float32, 2)
         
         # Check values
         expected = np.dot(np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([[1.0, 0.0], [0.0, 1.0]]).T)
@@ -339,8 +339,8 @@ class TestFloat32Support:
             pl.col("embedding").pmm.matmul(corpus_emb).alias("scores")
         )
         
-        # Result should be List[f64]
-        assert result["scores"].dtype == pl.List(pl.Float64)
+        # Result should be Array[f64, n_corpus]
+        assert result["scores"].dtype == pl.Array(pl.Float64, 2)
     
     def test_topk_f32(self):
         """Test topk with f32 embeddings"""
@@ -388,7 +388,7 @@ class TestFloat32Support:
         )
         
         # Mixed types should use f64 path
-        assert result["scores"].dtype == pl.List(pl.Float64)
+        assert result["scores"].dtype == pl.Array(pl.Float64, 1)
     
     def test_f32_array_type(self):
         """Test f32 with fixed-size Array type for optimal performance"""
@@ -403,8 +403,8 @@ class TestFloat32Support:
             pl.col("embedding").pmm.matmul(corpus_emb).alias("scores")
         )
         
-        # Should work with Array type
-        assert result["scores"].dtype == pl.List(pl.Float32)
+        # Should work with Array type - output is Array[f32, n_corpus]
+        assert result["scores"].dtype == pl.Array(pl.Float32, 2)
         assert len(result) == 2
 
 

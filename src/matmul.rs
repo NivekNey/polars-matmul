@@ -127,6 +127,35 @@ fn vec_to_list_series_f32(data: Vec<f32>, n_rows: usize, row_len: usize) -> Pola
     Ok(builder.finish().into_series())
 }
 
+/// Convert flat Vec<f64> to Array[f64, width] Series (more efficient for fixed-size output)
+/// Uses ChunkedArray::from_vec for zero-copy, then reshapes
+fn vec_to_array_series_f64(data: Vec<f64>, n_rows: usize, width: usize) -> PolarsResult<Series> {
+    use polars::prelude::ReshapeDimension;
+    
+    // Create a flat Float64Chunked from the Vec (zero-copy - takes ownership)
+    let flat = Float64Chunked::from_vec("values".into(), data);
+    
+    // Reshape into Array type - this creates a FixedSizeList view over the same data
+    let reshaped = flat.into_series().reshape_array(&[
+        ReshapeDimension::new(n_rows as i64),
+        ReshapeDimension::new(width as i64),
+    ])?;
+    
+    Ok(reshaped.with_name("matmul".into()))
+}
+
+/// Convert flat Vec<f32> to Array[f32, width] Series
+fn vec_to_array_series_f32(data: Vec<f32>, n_rows: usize, width: usize) -> PolarsResult<Series> {
+    use polars::prelude::ReshapeDimension;
+    
+    let flat = Float32Chunked::from_vec("values".into(), data);
+    let reshaped = flat.into_series().reshape_array(&[
+        ReshapeDimension::new(n_rows as i64),
+        ReshapeDimension::new(width as i64),
+    ])?;
+    Ok(reshaped.with_name("matmul".into()))
+}
+
 /// Convert a Polars Series of List/Array to an ndarray matrix (f64)
 /// 
 /// Optimized for fixed-size arrays (Array[f64, dim]) where we can extract
@@ -341,9 +370,8 @@ fn matmul_impl_f64(left: &Series, right: &Series) -> PolarsResult<Series> {
             n, 
             left_data.dim
         );
-        
-        // Efficient output construction
-        return vec_to_list_series_f64(result_vec, m, n);
+        // Use Array output (efficient - uses from_vec + reshape)
+        return vec_to_array_series_f64(result_vec, m, n);
     }
     
     // Fallback: copy to ndarray
@@ -362,11 +390,11 @@ fn matmul_impl_f64(left: &Series, right: &Series) -> PolarsResult<Series> {
     
     let result = matmul_f64(&left_matrix, &right_matrix);
     
-    // Flatten and use efficient output construction
+    // Use Array output for consistency
     let m = result.nrows();
     let n = result.ncols();
     let flat: Vec<f64> = result.iter().copied().collect();
-    vec_to_list_series_f64(flat, m, n)
+    vec_to_array_series_f64(flat, m, n)
 }
 
 fn matmul_impl_f32(left: &Series, right: &Series) -> PolarsResult<Series> {
@@ -393,9 +421,8 @@ fn matmul_impl_f32(left: &Series, right: &Series) -> PolarsResult<Series> {
             n, 
             left_data.dim
         );
-        
-        // Efficient output construction
-        return vec_to_list_series_f32(result_vec, m, n);
+        // Use Array output (efficient - uses from_vec + reshape)
+        return vec_to_array_series_f32(result_vec, m, n);
     }
     
     // Fallback: copy to ndarray
@@ -414,11 +441,11 @@ fn matmul_impl_f32(left: &Series, right: &Series) -> PolarsResult<Series> {
     
     let result = matmul_f32(&left_matrix, &right_matrix);
     
-    // Flatten and use efficient output construction
+    // Use Array output for consistency
     let m = result.nrows();
     let n = result.ncols();
     let flat: Vec<f32> = result.iter().copied().collect();
-    vec_to_list_series_f32(flat, m, n)
+    vec_to_array_series_f32(flat, m, n)
 }
 
 /// Helper to compute top-k indices and scores

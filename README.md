@@ -212,7 +212,7 @@ Compute all pairwise dot products.
 **Parameters:**
 - `corpus`: `pl.Series` - Corpus embeddings (List or Array type)
 
-**Returns:** Expression evaluating to `List[f64]` or `List[f32]`
+**Returns:** Expression evaluating to `Array[f64, N]` or `Array[f32, N]` where N = len(corpus)
 
 ## Performance
 
@@ -220,11 +220,11 @@ Compute all pairwise dot products.
 
 | Operation (1000×10000, 256d, k=10) | NumPy | **polars-matmul** | Ratio |
 |-----------------------------------|-------|-------------------|-------|
-| **Top-K Similarity** (End-to-End)  | ~72ms | **~44ms**         | **0.60x** |
-| Raw Matmul f32 (micro-benchmark)  | ~5ms  | ~16ms             | 3.0x |
-| Raw Matmul f64 (micro-benchmark)  | ~17ms | ~31ms             | 1.85x |
+| **Top-K Similarity** (End-to-End)  | ~73ms | **~45ms**         | **0.64x** |
+| Raw Matmul f32 (micro-benchmark)  | ~5ms  | ~11ms             | 2.1x |
+| Raw Matmul f64 (micro-benchmark)  | ~17ms | ~22ms             | 1.3x |
 
-> **Analysis**: While NumPy is faster at raw matrix multiplication (due to output conversion overhead), `polars-matmul` wins on the end-to-end task by fusing normalization, multiplication, and top-k selection into a single optimized Rust pass. The f64 path is closer to NumPy performance due to lower relative overhead.
+> **Analysis**: The raw matmul overhead comes from Polars Series construction. For end-to-end top-k search, `polars-matmul` is **1.6x faster** than NumPy by fusing normalization, multiplication, and selection into a single optimized Rust pass.
 
 ## Benchmarking
 

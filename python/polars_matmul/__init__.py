@@ -132,8 +132,8 @@ class PmmNamespace:
             corpus: Series of corpus embeddings (List or Array type)
             
         Returns:
-            Expression evaluating to List[f64] or List[f32]
-            (dtype matches input if both are f32, otherwise f64)
+            Expression evaluating to Array[f64, N] or Array[f32, N] where N = len(corpus)
+            (dtype is f32 if both inputs are f32, otherwise f64)
             
         Example:
             >>> # Get all pairwise scores
@@ -141,7 +141,8 @@ class PmmNamespace:
             ...     scores=pl.col("embedding").pmm.matmul(corpus["embedding"])
             ... )
             >>> 
-            >>> # Result: each row has a list of len(corpus) scores
+            >>> # Result: each row has an array of len(corpus) scores
+            >>> # Access individual scores: df["scores"].arr.get(0)
         """
         if isinstance(corpus, pl.Expr):
             raise TypeError(
@@ -149,14 +150,16 @@ class PmmNamespace:
                 "Use corpus['column_name'] or corpus.get_column('column_name')."
             )
 
-        # Infer output dtype from corpus
-        dtype = pl.List(pl.Float64)
+        # Output is Array[f32/f64, n_corpus] - fixed size for each row
+        n_corpus = len(corpus)
         try:
             inner = corpus.dtype.inner
             if inner == pl.Float32:
-                dtype = pl.List(pl.Float32)
+                dtype = pl.Array(pl.Float32, n_corpus)
+            else:
+                dtype = pl.Array(pl.Float64, n_corpus)
         except:
-            pass
+            dtype = pl.Array(pl.Float64, n_corpus)
 
         return self._expr.map_batches(
             lambda s: _matmul(s, corpus),
