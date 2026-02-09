@@ -200,7 +200,7 @@ def main():
         .unnest("m")
     )
     is_correct = verify_correctness(query_np, corpus_np, pmm_result, k=10)
-    print(f"  Result: {'✅ PASSED' if is_correct else '❌ FAILED'}")
+    print(f"  Result: {'PASSED' if is_correct else 'FAILED'}")
 
     # Summary
     print(f"\n{'=' * 90}")
