@@ -2,7 +2,7 @@
 
 use ndarray::Array2;
 use polars::prelude::*;
-use polars::chunked_array::builder::ListPrimitiveChunkedBuilder;
+
 use crate::metrics::{
     Metric, compute_similarity_matrix, compute_similarity_matrix_f32, 
     matmul_f64, matmul_f32, matmul_slice_f64, matmul_slice_f32
@@ -94,38 +94,6 @@ fn try_extract_contiguous_f32(series: &Series) -> Option<ContiguousData<f32>> {
     }
 }
 
-/// Efficiently convert a flat Vec<f64> to a List[f64] Series
-/// Uses ListPrimitiveChunkedBuilder for minimal allocations
-fn vec_to_list_series_f64(data: Vec<f64>, n_rows: usize, row_len: usize) -> PolarsResult<Series> {
-    let mut builder = ListPrimitiveChunkedBuilder::<Float64Type>::new(
-        PlSmallStr::from_static("matmul"),
-        n_rows,
-        row_len,
-        DataType::Float64,
-    );
-    
-    for chunk in data.chunks(row_len) {
-        builder.append_slice(chunk);
-    }
-    
-    Ok(builder.finish().into_series())
-}
-
-/// Efficiently convert a flat Vec<f32> to a List[f32] Series
-fn vec_to_list_series_f32(data: Vec<f32>, n_rows: usize, row_len: usize) -> PolarsResult<Series> {
-    let mut builder = ListPrimitiveChunkedBuilder::<Float32Type>::new(
-        PlSmallStr::from_static("matmul"),
-        n_rows,
-        row_len,
-        DataType::Float32,
-    );
-    
-    for chunk in data.chunks(row_len) {
-        builder.append_slice(chunk);
-    }
-    
-    Ok(builder.finish().into_series())
-}
 
 /// Convert flat Vec<f64> to Array[f64, width] Series (more efficient for fixed-size output)
 /// Uses ChunkedArray::from_vec for zero-copy, then reshapes
